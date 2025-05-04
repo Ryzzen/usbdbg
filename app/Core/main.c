@@ -1,9 +1,6 @@
+#include "ch32v20x.h"
 #include "debug.h"
-#include "usb_host_app.h"
-
-/* Global define */
-
-/* Global Variable */
+#include "usb_host_core.h"
 
 /**
  * @brief Main function
@@ -30,7 +27,9 @@ int main(void) {
 
   USBH_HostInit();
 
+  USBH_AppCb app = NULL;
+
   while (1) {
-    USBH_App();
+    USBH_Core(app);
   }
 }

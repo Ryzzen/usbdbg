@@ -100,28 +100,6 @@ extern "C" {
 /* Struct Definition */
 /* Note: Please modify it according to your project. */
 
-/* HUB Port Device  */
-typedef struct _HUB_DEVICE {
-  uint8_t bStatus;
-  uint8_t bType;
-  uint8_t bAddress;
-  uint8_t bSpeed;
-  uint8_t bEp0MaxPks;
-  uint8_t DeviceIndex;
-} HUB_DEVICE, *PHUB_DEVICE;
-
-/* Root HUB Device Structure */
-typedef struct _ROOT_HUB_DEVICE {
-  uint8_t bStatus;
-  uint8_t bType;
-  uint8_t bAddress;
-  uint8_t bSpeed;
-  uint8_t bEp0MaxPks;
-  uint8_t DeviceIndex;
-  uint8_t bPortNum;
-  HUB_DEVICE Device[DEF_NEXT_HUB_PORT_NUM_MAX];
-} ROOT_HUB_DEVICE, *PROOT_HUB_DEVICE;
-
 /* USB Host Control Structure */
 typedef struct __HOST_CTL {
   uint8_t InterfaceNum;
@@ -159,11 +137,6 @@ typedef struct __HOST_CTL {
 
   } Interface[DEF_INTERFACE_NUM_MAX];
 } HOST_CTL, *PHOST_CTL;
-
-/*******************************************************************************/
-/* Struct Declaration */
-extern struct _ROOT_HUB_DEVICE RootHubDev;
-extern struct __HOST_CTL HostCtl[];
 
 #ifdef __cplusplus
 }
