@@ -4,6 +4,7 @@
 #include "usb_host_config.h"
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 RootHubDevice rootHubDev;
@@ -12,7 +13,7 @@ struct __HOST_CTL HostCtl[DEF_TOTAL_ROOT_HUB * DEF_ONE_USB_SUP_DEV_TOTAL];
 uint8_t Com_Buf[DEF_COM_BUF_LEN]; // General Buffer
 
 static void PrintData(ssize_t size, uint8_t *data) {
-  for (ssize_t i = 0; i < 18; i++) {
+  for (ssize_t i = 0; i < size; i++) {
     printf("%02x ", data[i]);
   }
   printf("\r\n");
@@ -51,6 +52,57 @@ void USBH_HostInit(void) {
   /*     &HostCtl[DEF_USBFS_PORT_INDEX *
    * DEF_ONE_USB_SUP_DEV_TOTAL].InterfaceNum, */
   /*     0, DEF_ONE_USB_SUP_DEV_TOTAL * sizeof(HOST_CTL)); */
+}
+
+void utf16le_print(const uint16_t *utf16le_str) {
+  while (*utf16le_str) {
+    uint16_t code_unit = *utf16le_str++;
+    uint8_t bytes[2] = {code_unit & 0xFF, (code_unit >> 8) & 0xFF};
+    fwrite(bytes, 1, 2, stdout);
+  }
+  printf("\r\n");
+}
+
+uint8_t USBH_GetDeviceStrings(Device *dev) {
+  uint8_t status;
+  uint8_t len;
+
+  dev->manufacturerStr = NULL;
+  dev->productStr = NULL;
+  dev->serialStr = NULL;
+
+  /* TODO: Support other languages than english */
+  status = USBFSH_GetStrDescr(rootHubDev.ep0MaxPks,
+                              dev->devDescriptor.iManufacturer, Com_Buf);
+  if (status == ERR_SUCCESS) {
+    len = Com_Buf[0];
+    dev->manufacturerStr = malloc(len + sizeof(uint16_t));
+    memcpy(dev->manufacturerStr, Com_Buf, len);
+    dev->manufacturerStr[len / sizeof(uint16_t)] = 0;
+  } else
+    return status;
+
+  status = USBFSH_GetStrDescr(rootHubDev.ep0MaxPks, dev->devDescriptor.iProduct,
+                              Com_Buf);
+  if (status == ERR_SUCCESS) {
+    len = Com_Buf[0];
+    dev->productStr = malloc(len + sizeof(uint16_t));
+    memcpy(dev->productStr, Com_Buf, len);
+    dev->productStr[len / sizeof(uint16_t)] = 0;
+  } else
+    return status;
+
+  status = USBFSH_GetStrDescr(rootHubDev.ep0MaxPks,
+                              dev->devDescriptor.iSerialNumber, Com_Buf);
+  if (status == ERR_SUCCESS) {
+    len = Com_Buf[0];
+    dev->serialStr = malloc(len + sizeof(uint16_t));
+    memcpy(dev->serialStr, Com_Buf, len);
+    dev->serialStr[len / sizeof(uint16_t)] = 0;
+  } else
+    return status;
+
+  return ERR_SUCCESS;
 }
 
 void USBH_AnalyseType(USB_DEV_DESCR *dev, USB_ITF_DESCR *itf, uint8_t *ptype) {
@@ -110,13 +162,10 @@ ENUM_START:
   }
 
   /* Get device descriptor */
-  printf("Device descriptor:\r\n\t");
   status = USBFSH_GetDeviceDescr(&rootHubDev.ep0MaxPks, DevDesc_Buf);
   if (status == ERR_SUCCESS) {
+    printf("Device descriptor successfully acquiered\r\n");
     memcpy(&dev->devDescriptor, DevDesc_Buf, 18);
-    PrintData(18, DevDesc_Buf);
-    printf("\tVendor ID: 0x%04x\r\n", dev->devDescriptor.idVendor);
-    printf("\tProduct ID: 0x%04x\r\n", dev->devDescriptor.idProduct);
 
   } else {
     printf("Err(%02x)\r\n", status);
@@ -141,7 +190,6 @@ ENUM_START:
   Delay_Ms(5);
 
   /* Get configuration descriptor */
-  printf("Configuration descriptor:\r\n\t");
   status = USBFSH_GetConfigDescr(rootHubDev.ep0MaxPks, Com_Buf, DEF_COM_BUF_LEN,
                                  &len);
   uint8_t cfg_val;
@@ -154,14 +202,13 @@ ENUM_START:
      * reason to upgrade it.*/
     memcpy(&dev->cfgDescriptor, ((USB_CFG_DESCR *)Com_Buf),
            sizeof(USB_CFG_DESCR));
-    memcpy(&dev->itfDescritor, &((USB_CFG_DESCR_LONG *)Com_Buf)->itf_descr,
+    memcpy(&dev->itfDescriptor, &((USB_CFG_DESCR_LONG *)Com_Buf)->itf_descr,
            sizeof(USB_ITF_DESCR));
-
-    PrintData(len, Com_Buf);
+    printf("Configuration descriptor successfully acquiered\r\n");
 
     /* Analyze USB device type  */
-    USBH_AnalyseType(&dev->devDescriptor, &dev->itfDescritor, &rootHubDev.type);
-    printf("\tDevice type: %02x\r\n", rootHubDev.type);
+    USBH_AnalyseType(&dev->devDescriptor, &dev->itfDescriptor,
+                     &rootHubDev.type);
   } else {
     printf("Err(%02x)\r\n", status);
     if (enum_cnt <= ENUM_MAX_TRIES)
@@ -179,6 +226,18 @@ ENUM_START:
       goto ENUM_START;
     return ERR_USB_UNSUPPORT;
   }
+
+  status = USBH_GetDeviceStrings(dev);
+  if (status == ERR_SUCCESS) {
+    printf("USB device strings successfully acquiered\r\n");
+  } else {
+    printf("Err(%02x)\r\n", status);
+    if (enum_cnt <= ENUM_MAX_TRIES)
+      goto ENUM_START;
+    return status;
+  }
+
+  /* TODO: Get string descriptors */
   return ERR_SUCCESS;
 }
 
@@ -234,6 +293,29 @@ void USBH_Core(USBH_AppCb cb) {
     /* Enumerate device */
     status = USBH_EnumDevice(&dev);
     if (status == ERR_SUCCESS) {
+      printf("Device descriptor:\r\n\t");
+      PrintData(sizeof(USB_DEV_DESCR), (uint8_t *)(&(dev.devDescriptor)));
+      printf("Configuration descriptor:\r\n\t");
+      PrintData(sizeof(USB_CFG_DESCR), (uint8_t *)(&(dev.cfgDescriptor)));
+      printf("Interface descriptor:\r\n\t");
+      PrintData(sizeof(USB_ITF_DESCR), (uint8_t *)(&(dev.itfDescriptor)));
+      printf("Strings:\r\n\t");
+      PrintData((uint8_t)(dev.manufacturerStr[0]),
+                (uint8_t *)(dev.manufacturerStr));
+      printf("\t");
+      PrintData((uint8_t)(dev.productStr[0]), (uint8_t *)(dev.productStr));
+      printf("\t");
+      PrintData((uint8_t)(dev.serialStr[0]), (uint8_t *)(dev.serialStr));
+
+      printf("General description:\r\n");
+      printf("\tVendor ID: 0x%04x\r\n", dev.devDescriptor.idVendor);
+      printf("\tProduct ID: 0x%04x\r\n", dev.devDescriptor.idProduct);
+      printf("\tManufacturer: ");
+      utf16le_print(dev.manufacturerStr + 1);
+      printf("\tProduct: ");
+      utf16le_print(dev.productStr + 1);
+      printf("\tDevice type: %02x\r\n", rootHubDev.type);
+
       CheckDevType();
     } else if (status != ERR_USB_DISCON) {
       printf("Enumeration failed with error code:%x\r\n", status);
@@ -253,6 +335,8 @@ void USBH_Core(USBH_AppCb cb) {
       break;
     }
     /* TODO: Run driver */
+    /* TODO: Make a HID driver that finishes enumeration and returns every
+     * reports it reads */
     break;
   }
 }

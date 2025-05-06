@@ -38,7 +38,10 @@ typedef struct _RootHubDevice {
 typedef struct _Device {
   USB_DEV_DESCR devDescriptor;
   USB_CFG_DESCR cfgDescriptor;
-  USB_ITF_DESCR itfDescritor;
+  USB_ITF_DESCR itfDescriptor;
+  uint16_t *manufacturerStr;
+  uint16_t *productStr;
+  uint16_t *serialStr;
 } Device;
 
 void USBH_HostInit(void);
