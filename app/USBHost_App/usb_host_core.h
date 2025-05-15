@@ -34,11 +34,20 @@ typedef struct _RootHubDevice {
   HubDevice device[DEF_NEXT_HUB_PORT_NUM_MAX];
 } RootHubDevice;
 
+/* TODO: Implem the struct */
+typedef struct _USBInterface {
+  USB_ITF_DESCR itfDescriptor;
+  USB_ENDP_DESCR *endpDescriptors;
+
+} USBInterface;
+
 /* TODO: Add support for multiple descriptors and configurations */
+/* TODO: Desctructor function */
 typedef struct _Device {
+  uint8_t *fullDescriptor;
   USB_DEV_DESCR devDescriptor;
   USB_CFG_DESCR cfgDescriptor;
-  USB_ITF_DESCR itfDescriptor;
+  USBInterface *itfDescriptors;
   uint16_t *manufacturerStr;
   uint16_t *productStr;
   uint16_t *serialStr;

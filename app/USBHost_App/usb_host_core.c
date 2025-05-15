@@ -22,7 +22,7 @@ static void PrintData(ssize_t size, uint8_t *data) {
 static void CheckDevType(void) {
   switch (rootHubDev.type) {
   case USB_DEV_CLASS_HID:
-    printf("Enumerating HID device. ");
+    printf("HID device detected\r\n");
     rootHubDev.status = ROOT_DEV_SUCCESS;
     break;
   default:
@@ -41,7 +41,6 @@ static void CheckDevType(void) {
     rootHubDev.status = ROOT_DEV_FAILED;
     break;
   }
-  printf("Ending Enumeration.\r\n");
 }
 
 void USBH_HostInit(void) {
@@ -200,15 +199,47 @@ ENUM_START:
      * just the first one. And this code may crash if no interface descriptor
      * are sent but GetConfigDescr dosn't return an error somehow. More of a
      * reason to upgrade it.*/
+
+    /* Store full configuration */
+    dev->fullDescriptor = malloc(sizeof(uint8_t) * len);
+    memcpy(dev->fullDescriptor, Com_Buf, len);
+
+    /* Store configuration descriptor */
     memcpy(&dev->cfgDescriptor, ((USB_CFG_DESCR *)Com_Buf),
            sizeof(USB_CFG_DESCR));
-    memcpy(&dev->itfDescriptor, &((USB_CFG_DESCR_LONG *)Com_Buf)->itf_descr,
-           sizeof(USB_ITF_DESCR));
+
+    /* Store full device interface descriptor */
+    dev->itfDescriptors =
+        malloc(sizeof(USBInterface) * dev->cfgDescriptor.bNumInterfaces);
+
+    /* Set pointer at the start of the interfaces buffer */
+    uint8_t *descs = (uint8_t *)(&((USB_CFG_DESCR_LONG *)Com_Buf)->itf_descr);
+
+    /* Iterate over interface descriptors */
+    for (ssize_t i = 0;
+         (i < dev->cfgDescriptor.bNumInterfaces) && descs[1] == 0x04; i++) {
+      /* Store interface descriptors */
+      memcpy(&dev->itfDescriptors[i].itfDescriptor, descs,
+             sizeof(USB_ITF_DESCR));
+      dev->itfDescriptors[i].endpDescriptors =
+          malloc(sizeof(USB_ENDP_DESCR) *
+                 dev->itfDescriptors[i].itfDescriptor.bNumEndpoints);
+      descs += descs[0];
+
+      /* Parse and stores endpoint descriptors from this interface */
+      ssize_t i2 = 0;
+      for (; ((descs - Com_Buf) < len) && descs[1] != 0x04; descs += descs[0]) {
+        if (descs[1] == 0x05) {
+          memcpy(&(dev->itfDescriptors[i].endpDescriptors[i2++]), descs,
+                 sizeof(USB_ENDP_DESCR));
+        }
+      }
+    }
     printf("Configuration descriptor successfully acquiered\r\n");
 
     /* Analyze USB device type  */
-    USBH_AnalyseType(&dev->devDescriptor, &dev->itfDescriptor,
-                     &rootHubDev.type);
+    USBH_AnalyseType(&dev->devDescriptor,
+                     &(dev->itfDescriptors[0].itfDescriptor), &rootHubDev.type);
   } else {
     printf("Err(%02x)\r\n", status);
     if (enum_cnt <= ENUM_MAX_TRIES)
@@ -237,7 +268,6 @@ ENUM_START:
     return status;
   }
 
-  /* TODO: Get string descriptors */
   return ERR_SUCCESS;
 }
 
@@ -291,14 +321,27 @@ void USBH_Core(USBH_AppCb cb) {
       break;
     }
     /* Enumerate device */
+    /* enum interfaces */
+    /* enum endpoints */
     status = USBH_EnumDevice(&dev);
     if (status == ERR_SUCCESS) {
       printf("Device descriptor:\r\n\t");
       PrintData(sizeof(USB_DEV_DESCR), (uint8_t *)(&(dev.devDescriptor)));
       printf("Configuration descriptor:\r\n\t");
       PrintData(sizeof(USB_CFG_DESCR), (uint8_t *)(&(dev.cfgDescriptor)));
-      printf("Interface descriptor:\r\n\t");
-      PrintData(sizeof(USB_ITF_DESCR), (uint8_t *)(&(dev.itfDescriptor)));
+      printf("Interface descriptors:\r\n");
+      for (ssize_t i = 0; i < dev.cfgDescriptor.bNumInterfaces; i++) {
+        printf("\t");
+        PrintData(sizeof(USB_ITF_DESCR),
+                  (uint8_t *)(&(dev.itfDescriptors[i].itfDescriptor)));
+        printf("\tEndpoint descriptors:\r\n");
+        for (ssize_t i2 = 0;
+             i2 < dev.itfDescriptors[i].itfDescriptor.bNumEndpoints; i2++) {
+          printf("\t\t");
+          PrintData(dev.itfDescriptors[i].endpDescriptors[i2].bLength,
+                    &dev.itfDescriptors[i].endpDescriptors[i2]);
+        }
+      }
       printf("Strings:\r\n\t");
       PrintData((uint8_t)(dev.manufacturerStr[0]),
                 (uint8_t *)(dev.manufacturerStr));
